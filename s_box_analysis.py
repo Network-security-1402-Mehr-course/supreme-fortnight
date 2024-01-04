@@ -1,5 +1,7 @@
-from numpy import arange, asarray, uint, unique, unpackbits, zeros
+from numpy import (arange, array, asarray, column_stack, log2, ones, uint,
+                   unique, unpackbits, zeros)
 from numpy.typing import NDArray
+from sympy import Matrix
 
 
 def differential(s_box_: NDArray):
@@ -48,3 +50,42 @@ def linear(s_box_: NDArray):
     ordering = biases.argsort()[::-1]
 
     return linear_equations[ordering], true_equations[ordering]
+
+
+def algebraic(s_box_: NDArray):
+    s_box = s_box_.flat
+    n = len(s_box)
+    bit_count = int(log2(n))
+
+    def x(i):
+        return (arange(n, dtype=uint) & (ones(n, dtype=uint) << i)) >> i
+
+    def y(i):
+        return (s_box & (ones(n, dtype=uint) << i)) >> i
+
+    # {1, x3, ... , xo, y3, ... , Yo, x3x2, x3x1, ... , x1xo, x3y3, x3y2, ... , xoyo, y3y2, y3y1, ... ,y1Yo}
+    monomials = [
+        ones(n, dtype=uint),  # 1
+        *[x(i) for i in reversed(range(bit_count))],  # x3, ... , x0
+        *[y(i) for i in reversed(range(bit_count))],  # y3, ... , y0
+        *[
+            x(i) * x(j) for i in reversed(range(bit_count)) for j in reversed(range(i))
+        ],  # x3x2, x3x1, ... , x1x0
+        *[
+            x(i) * y(j)
+            for i in reversed(range(bit_count))
+            for j in reversed(range(bit_count))
+        ],  # x3y3, x3y2, ... , x0y0
+        *[
+            y(i) * y(j) for i in reversed(range(bit_count)) for j in reversed(range(i))
+        ],  # y3y2, y3y1, ... , y1y0
+    ]
+    space_matrix = column_stack(monomials)
+
+    null_space = array(Matrix(space_matrix).nullspace())
+    null_space /= min(abs(null_space)[null_space != 0])
+    null_space %= 2
+    null_space = null_space.reshape(-1, len(monomials))
+    null_space
+
+    return null_space
